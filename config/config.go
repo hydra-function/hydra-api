@@ -9,7 +9,7 @@ import (
 
 
 func init() {
-	localDbConnString := "mongodb://db-01.hydra.local:27017,db-02.hydra.local:27027/hydra_api?replicaSet=rs0"
+	localDbConnString := "mongodb://root:rootpassword@localhost:27017/hydra_api?authSource=admin"
 	viper.AutomaticEnv()
 	envReplacer := strings.NewReplacer(".", "_")
 	viper.SetEnvKeyReplacer(envReplacer)

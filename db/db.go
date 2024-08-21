@@ -35,9 +35,9 @@ func newFromURL(url string) (*DB, error) {
 	}
 	d := &DB{Client: client}
 
-	// if err := d.ensureIndexes(); err != nil {
-	// 	return nil, fmt.Errorf("failed to ensure indexes: %w", err)
-	// }
+	if err := d.ensureIndexes(); err != nil {
+		return nil, fmt.Errorf("failed to ensure indexes: %w", err)
+	}
 
 	return d, nil
 }
