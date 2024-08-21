@@ -1,0 +1,73 @@
+services:
+  hydra-api:
+    build:
+      context: .
+      dockerfile: hydra.Dockerfile
+    environment:
+      - LOG_LEVEL=debug
+      - SENTRY_DSN=${SENTRY_DSN}
+      - GOPRIVATE=gitlab.globoi.com/*
+      - GOPROXY=https://artifactory.globoi.com/artifactory/golang
+    ports:
+      - 3000:3000
+    volumes:
+      - ./:/app
+      - ~/.ssh:/root/.ssh
+      - ~/.gitconfig:/root/.gitconfig
+    depends_on:
+      - hydra-db-01
+      - hydra-db-02
+      - hydra-db-arbiter
+
+  hydra-db-setup:
+    image: mongo:6.0.9
+    restart: on-failure
+    volumes:
+      - ./scripts:/scripts
+    entrypoint: [ "/scripts/setup-local-mongo.sh" ]
+    depends_on:
+      - hydra-db-01
+      - hydra-db-02
+      - hydra-db-arbiter
+
+  hydra-db-01:
+    image: mongo:6.0.9
+    hostname: db-01.hydra.local
+    ports:
+      - 27017:27017
+    restart: always
+    entrypoint: [ "/usr/bin/mongod", "--bind_ip_all", "--replSet", "rs0", "--journal", "--dbpath", "/data/db"]
+    volumes:
+      - hydra_db_01_volume:/data/db
+
+  hydra-db-02:
+    image: mongo:6.0.9
+    hostname: db-02.hydra.local
+    ports:
+      - 27018:27017
+    restart: always
+    entrypoint: [ "/usr/bin/mongod", "--bind_ip_all", "--replSet", "rs0", "--journal", "--dbpath", "/data/db"]
+    volumes:
+      - hydra_db_02_volume:/data/db
+
+  hydra-db-arbiter:
+    image: mongo:6.0.9
+    hostname: db-arbiter.hydra.local
+    ports:
+      - 27019:27017
+    restart: always
+    entrypoint: [ "/usr/bin/mongod", "--bind_ip_all", "--replSet", "rs0", "--journal", "--dbpath", "/data/db"]
+    volumes:
+      - hydra_db_arbiter_volume:/data/db
+
+volumes:
+  hydra_db_01_volume:
+  hydra_db_02_volume:
+  hydra_db_arbiter_volume:
+
+# for linux VPN users, golang dependencies download might not work without this:
+# networks:
+#   default:
+#     driver: bridge
+#     driver_opts:
+#       com.docker.network.driver.mtu: 1422
