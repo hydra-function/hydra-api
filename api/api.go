@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"path/filepath"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/hydra-function/hydra-api/cache"
 	_ "github.com/hydra-function/hydra-api/config"
 	"github.com/hydra-function/hydra-api/db"
+	"github.com/hydra-function/hydra-api/ingress"
 	"github.com/labstack/echo"
 	"github.com/spf13/viper"
 	"go.mongodb.org/mongo-driver/bson"
@@ -37,16 +39,16 @@ func Start() *echo.Echo {
 		e.Logger.Fatal(err)
 	}
 
-	// ing := ingress.Ingress{
-	// 	Namespace: "default",
-	// 	Slug:      "hydra-ingress",
-	// 	Host:      "hydra.local",
-	// 	Port:      3030,
-	// }
+	ing := ingress.Ingress{
+		Namespace: "default",
+		Slug:      "hydra-ingress",
+		Host:      "hydra.local",
+		Port:      3030,
+	}
 
-	// if err := ing.Create(); err != nil {
-	// 	log.Fatalf("Error creating Ingress: %v", err)
-	// }
+	if err := ing.Create(); err != nil {
+		log.Fatalf("Error creating Ingress: %v", err)
+	}
 
 	e.GET("/healthcheck", func(c echo.Context) error {
 		return c.String(http.StatusOK, "OK")
@@ -56,15 +58,15 @@ func Start() *echo.Echo {
 		namespace := c.Param("namespace")
 		slug := c.Param("slug")
 
-		// err := createPod(namespace, slug)
-		// if err != nil {
-		// 	return c.String(http.StatusInternalServerError, fmt.Sprintf("Failed to create pod: %s", err.Error()))
-		// }
+		err := createPod(namespace, slug)
+		if err != nil {
+			return c.String(http.StatusInternalServerError, fmt.Sprintf("Failed to create pod: %s", err.Error()))
+		}
 
-		// err = createService(namespace, slug)
-		// if err != nil {
-		// 	return c.String(http.StatusInternalServerError, fmt.Sprintf("Failed to create service: %s", err.Error()))
-		// }
+		err = createService(namespace, slug)
+		if err != nil {
+			return c.String(http.StatusInternalServerError, fmt.Sprintf("Failed to create service: %s", err.Error()))
+		}
 
 		dbInstance, err := db.New()
 		if err != nil {
