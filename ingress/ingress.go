@@ -98,30 +98,28 @@ func (i *Ingress) createIngress() error {
 		return err
 	}
 
-	configSnippet := `
-      location / {
-	 	set $service_name "";
+	// configSnippet := `
+	//  	set $service_name "";
 
-		if ($http_x_function_namespace != "") {
-			set $service_name $http_x_function_namespace;
-		}
-		if ($http_x_function_id != "") {
-			set $service_name "${service_name}-$http_x_function_id";
-		}
-		
-		set $service_name "http://$service_name-service:3001";
-		
-		proxy_pass $service_name; 
-	  }
-    `
+	// 	if ($http_x_function_namespace != "") {
+	// 		set $service_name $http_x_function_namespace;
+	// 	}
+	// 	if ($http_x_function_id != "") {
+	// 		set $service_name "${service_name}-$http_x_function_id";
+	// 	}
+
+	// 	set $service_name "http://$service_name-service:3000";
+
+	// 	proxy_pass $service_name;
+	// `
 
 	ingress := &v1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      i.Slug,
 			Namespace: i.Namespace,
-			Annotations: map[string]string{
-				"nginx.ingress.kubernetes.io/configuration-snippet": configSnippet,
-			},
+			// Annotations: map[string]string{
+			// 	"nginx.ingress.kubernetes.io/configuration-snippet": configSnippet,
+			// },
 		},
 		Spec: v1.IngressSpec{
 			Rules: []v1.IngressRule{
@@ -131,16 +129,16 @@ func (i *Ingress) createIngress() error {
 						HTTP: &v1.HTTPIngressRuleValue{
 							Paths: []v1.HTTPIngressPath{
 								{
-									Path: "/",
+									Path: "/not-used",
 									PathType: func() *v1.PathType {
 										pathType := v1.PathTypePrefix
 										return &pathType
 									}(),
 									Backend: v1.IngressBackend{
 										Service: &v1.IngressServiceBackend{
-											Name: fmt.Sprintf("%s-%s-service", i.Namespace, i.Slug),
+											Name: "foo-bar-service",
 											Port: v1.ServiceBackendPort{
-												Number: i.Port,
+												Number: 3001,
 											},
 										},
 									},
@@ -173,6 +171,37 @@ func (i *Ingress) createIngress() error {
 	if err != nil {
 		return err
 	}
+
 	fmt.Printf("Created Ingress %q.\n", result.GetObjectMeta().GetName())
+	return nil
+}
+
+func (i *Ingress) AddPath(newPath v1.HTTPIngressPath) error {
+	kubeconfig := viper.GetString("kubeconfig.path")
+	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+	if err != nil {
+		return err
+	}
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return err
+	}
+
+	ingressClient := clientset.NetworkingV1().Ingresses(i.Namespace)
+	existingIngress, err := ingressClient.Get(context.TODO(), i.Slug, metav1.GetOptions{})
+	if err == nil {
+		existingIngress.Spec.Rules[0].IngressRuleValue.HTTP.Paths = append(
+			existingIngress.Spec.Rules[0].IngressRuleValue.HTTP.Paths,
+			newPath,
+		)
+		_, err = ingressClient.Update(context.TODO(), existingIngress, metav1.UpdateOptions{})
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Updated Ingress %q.\n", i.Slug)
+		return nil
+	}
+
 	return nil
 }

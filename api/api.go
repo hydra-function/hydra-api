@@ -22,6 +22,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
+
+	netV1 "k8s.io/api/networking/v1"
 )
 
 type PodInfo struct {
@@ -38,7 +40,7 @@ func Start() *echo.Echo {
 	// }
 
 	ing := ingress.Ingress{
-		Namespace: "default",
+		Namespace: "foo",
 		Slug:      "hydra-ingress",
 		Host:      "localhost",
 		Port:      80,
@@ -64,6 +66,27 @@ func Start() *echo.Echo {
 		err = createService(namespace, slug)
 		if err != nil {
 			return c.String(http.StatusInternalServerError, fmt.Sprintf("Failed to create service: %s", err.Error()))
+		}
+
+		path := netV1.HTTPIngressPath{
+			Path: fmt.Sprintf("/run/%s/%s/", namespace, slug),
+			PathType: func() *netV1.PathType {
+				pathType := netV1.PathTypePrefix
+				return &pathType
+			}(),
+			Backend: netV1.IngressBackend{
+				Service: &netV1.IngressServiceBackend{
+					Name: fmt.Sprintf("%s-%s-service", namespace, slug),
+					Port: netV1.ServiceBackendPort{
+						Number: 3001,
+					},
+				},
+			},
+		}
+
+		err = ing.AddPath(path)
+		if err != nil {
+			return c.String(http.StatusInternalServerError, fmt.Sprintf("Failed to add path: %s", err.Error()))
 		}
 
 		dbInstance, err := db.New()
@@ -118,20 +141,20 @@ func Start() *echo.Echo {
 		function_name := podInfo["Name"]
 		function_namespace := podInfo["Namespace"]
 
-		headers := c.Request().Header
+		// headers := c.Request().Header
 
-		headers.Set("X-Function-Name", function_name.(string))
-		headers.Set("X-Function-Namespace", function_namespace.(string))
+		// headers.Set("X-Function-Name", function_name.(string))
+		// headers.Set("X-Function-Namespace", function_namespace.(string))
 
 		client := &http.Client{}
 
 		// command: curl -H "X-Function-Name: <function_name>" -H "X-Function-Namespace: <function_namespace>" http://hydra.local:1232/
-		req, err := http.NewRequest("GET", "http://hydra.local:80/", nil)
+		req, err := http.NewRequest("GET", fmt.Sprintf("http://localhost/run/%s/%s/", function_namespace.(string), function_name.(string)), nil)
 		if err != nil {
 			return c.String(http.StatusInternalServerError, fmt.Sprintf("Failed to create request %s", err.Error()))
 		}
 
-		req.Header = headers
+		// req.Header = headers
 
 		resp, err := client.Do(req)
 		if err != nil {
@@ -186,7 +209,7 @@ func createPod(namespace, slug string) error {
 				{
 					Name:    "express-container",
 					Image:   "node:14", // Imagem base para o Node.js
-					Command: []string{"sh", "-c", "npm install express && node -e \"const express = require('express'); const app = express(); app.get('/', (req, res) => res.send('Hello World!')); app.listen(3000);\""},
+					Command: []string{"sh", "-c", "npm install express && node -e \"const express = require('express'); const app = express(); app.get('*', (req, res) => res.send('Hello World!')); app.listen(3000);\""},
 					Ports: []v1.ContainerPort{
 						{
 							ContainerPort: 3000,
