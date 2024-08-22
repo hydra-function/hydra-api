@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/viper"
 )
 
-
 func init() {
 	localDbConnString := "mongodb://root:rootpassword@localhost:27017/hydra_api?authSource=admin"
 	viper.AutomaticEnv()
@@ -28,4 +27,8 @@ func init() {
 	viper.SetDefault("client.id", "CqgMYSIm/9cbA2u8pd6DYQ==")
 	viper.SetDefault("sentry.timeout", 3)
 	viper.SetDefault("sentry.dsn", "")
+
+	// kubeconfig
+	viper.SetDefault("kubeconfig.path", "./kubeconfig.yaml")
+
 }

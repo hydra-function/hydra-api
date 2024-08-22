@@ -1,15 +1,14 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
-	"path/filepath"
 	"time"
 
-	"github.com/hydra-function/hydra-api/cache"
 	_ "github.com/hydra-function/hydra-api/config"
 	"github.com/hydra-function/hydra-api/db"
 	"github.com/hydra-function/hydra-api/ingress"
@@ -23,7 +22,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/util/homedir"
 )
 
 type PodInfo struct {
@@ -34,16 +32,16 @@ type PodInfo struct {
 func Start() *echo.Echo {
 	e := echo.New()
 
-	cacheService, err := cache.NewCacheService()
-	if err != nil {
-		e.Logger.Fatal(err)
-	}
+	// cacheService, err := cache.NewCacheService()
+	// if err != nil {
+	// 	e.Logger.Fatal(err)
+	// }
 
 	ing := ingress.Ingress{
 		Namespace: "default",
 		Slug:      "hydra-ingress",
-		Host:      "hydra.local",
-		Port:      3030,
+		Host:      "localhost",
+		Port:      80,
 	}
 
 	if err := ing.Create(); err != nil {
@@ -94,12 +92,28 @@ func Start() *echo.Echo {
 	e.POST("/api/run/:namespace/:slug", func(c echo.Context) error {
 		slug := c.Param("slug")
 		namespace := c.Param("namespace")
-		key := fmt.Sprintf("function:%s:%s", namespace, slug)
 
-		podInfo, err := cacheService.Get(key)
+		dbInstance, err := db.New()
 		if err != nil {
-			return c.String(http.StatusInternalServerError, fmt.Sprintf("Failed to get cache %s", err.Error()))
+			return c.String(http.StatusInternalServerError, fmt.Sprintf("Failed to connect to database: %s", err.Error()))
 		}
+
+		collection := dbInstance.Client.Database(viper.GetString("database.name")).Collection("functions")
+		filter := bson.M{"Namespace": namespace, "Name": slug}
+
+		var podInfo map[string]interface{}
+
+		err = collection.FindOne(context.Background(), filter).Decode(&podInfo)
+		if err != nil {
+			return c.String(http.StatusInternalServerError, fmt.Sprintf("Failed to get document from MongoDB: %s", err.Error()))
+		}
+
+		// key := fmt.Sprintf("function:%s:%s", namespace, slug)
+
+		// podInfo, err := cacheService.Get(key)
+		// if err != nil {
+		// 	return c.String(http.StatusInternalServerError, fmt.Sprintf("Failed to get cache %s", err.Error()))
+		// }
 
 		function_name := podInfo["Name"]
 		function_namespace := podInfo["Namespace"]
@@ -112,7 +126,7 @@ func Start() *echo.Echo {
 		client := &http.Client{}
 
 		// command: curl -H "X-Function-Name: <function_name>" -H "X-Function-Namespace: <function_namespace>" http://hydra.local:1232/
-		req, err := http.NewRequest("GET", "http://hydra.local:3030/", nil)
+		req, err := http.NewRequest("GET", "http://hydra.local:80/", nil)
 		if err != nil {
 			return c.String(http.StatusInternalServerError, fmt.Sprintf("Failed to create request %s", err.Error()))
 		}
@@ -140,7 +154,7 @@ func Start() *echo.Echo {
 
 func createPod(namespace, slug string) error {
 	// Load kubeconfig
-	kubeconfig := filepath.Join(homedir.HomeDir(), ".kube", "config")
+	kubeconfig := viper.GetString("kubeconfig.path")
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 	if err != nil {
 		return err
@@ -195,6 +209,21 @@ func createPod(namespace, slug string) error {
 		if err != nil {
 			return err
 		}
+
+		podLogsReq := podsClient.GetLogs(slug, &v1.PodLogOptions{})
+		podLogs, err := podLogsReq.Stream(context.TODO())
+		if err != nil {
+			fmt.Printf("Erro ao obter logs: %v\n", err)
+		} else {
+			defer podLogs.Close()
+			buf := new(bytes.Buffer)
+			_, err := io.Copy(buf, podLogs)
+			if err != nil {
+				fmt.Printf("Erro ao copiar logs: %v\n", err)
+			}
+			fmt.Printf("Logs do Pod:\n%s\n", buf.String())
+		}
+
 		if p.Status.Phase == v1.PodRunning {
 			break
 		}
@@ -206,7 +235,7 @@ func createPod(namespace, slug string) error {
 
 func createService(namespace, slug string) error {
 	// Load kubeconfig
-	kubeconfig := filepath.Join(homedir.HomeDir(), ".kube", "config")
+	kubeconfig := viper.GetString("kubeconfig.path")
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 	if err != nil {
 		return err

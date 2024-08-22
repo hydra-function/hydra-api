@@ -3,8 +3,8 @@ package ingress
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 
+	"github.com/spf13/viper"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -12,7 +12,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/util/homedir"
 )
 
 type Ingress struct {
@@ -30,7 +29,7 @@ func (i *Ingress) Create() error {
 }
 
 func (i *Ingress) createService() error {
-	kubeconfig := filepath.Join(homedir.HomeDir(), ".kube", "config")
+	kubeconfig := viper.GetString("kubeconfig.path")
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 	if err != nil {
 		return err
@@ -66,21 +65,18 @@ func (i *Ingress) createService() error {
 	servicesClient := clientset.CoreV1().Services(i.Namespace)
 	_, err = servicesClient.Get(context.TODO(), service.Name, metav1.GetOptions{})
 	if err == nil {
-		// Serviço já existe, então atualize-o
-		_, err = servicesClient.Update(context.TODO(), service, metav1.UpdateOptions{})
-		if err != nil {
-			return err
-		}
+		// _, err = servicesClient.Update(context.TODO(), service, metav1.UpdateOptions{})
+		// if err != nil {
+		// 	return err
+		// }
 		fmt.Printf("Updated Service %q.\n", service.GetObjectMeta().GetName())
 		return nil
 	}
 
 	if !errors.IsNotFound(err) {
-		// Erro diferente de "não encontrado"
 		return err
 	}
 
-	// Serviço não existe, então crie-o
 	_, err = servicesClient.Create(context.TODO(), service, metav1.CreateOptions{})
 	if err != nil {
 		return err
@@ -91,7 +87,7 @@ func (i *Ingress) createService() error {
 }
 
 func (i *Ingress) createIngress() error {
-	kubeconfig := filepath.Join(homedir.HomeDir(), ".kube", "config")
+	kubeconfig := viper.GetString("kubeconfig.path")
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 	if err != nil {
 		return err
@@ -103,18 +99,20 @@ func (i *Ingress) createIngress() error {
 	}
 
 	configSnippet := `
-      set $service_name "";
+      location / {
+	 	set $service_name "";
 
-      if ($http_x_function_namespace != "") {
-        set $service_name $http_x_function_namespace;
-      }
-      if ($http_x_function_id != "") {
-        set $service_name "${service_name}-$http_x_function_id";
-      }
-      
-      set $service_name "http://$service_name-service:3001";
-      
-      proxy_pass $service_name;
+		if ($http_x_function_namespace != "") {
+			set $service_name $http_x_function_namespace;
+		}
+		if ($http_x_function_id != "") {
+			set $service_name "${service_name}-$http_x_function_id";
+		}
+		
+		set $service_name "http://$service_name-service:3001";
+		
+		proxy_pass $service_name; 
+	  }
     `
 
 	ingress := &v1.Ingress{
